@@ -143,6 +143,13 @@ reference:
 '''
 
 dex_decode = {
+    # id:(dalvik-bytecode id, dalvik-bytecode, dalvik-bytecode format, handle function, 16-bit occupied number)
+    ## You can view the dalvik-bytecode format on https://source.android.com/devices/tech/dalvik/dalvik-bytecode,
+    ## https://source.android.com/devices/tech/dalvik/instruction-formats
+
+    # 好比说 12x格式的，说明指令流占了2个字节(1个word),然后低8位为opcode,高8位划分为两个4位，分别代入值进去位A B
+    #
+
     0: (0x00, 'nop', 'fmt10x', FMT10X, 1),
     1: (0x01, 'move', 'fmt12x', FMT12X, 1),
     2: (0x02, 'move/from16', 'fmt22x', FMT22X, 2),
@@ -789,6 +796,7 @@ class DexClass:
         offset += n
         field_idx = 0
 
+        print("Parsing the class static field...");
         for i in range(0, self.num_static_fields):
             n, field_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
             offset += n
@@ -805,6 +813,7 @@ class DexClass:
                 parse_encoded_value(dex_object, dex_object.m_file_content[self.static_value_off + staticoffset:])
             # print("")
 
+        print("Parsing the class instance field...");
         field_idx = 0
         for i in range(0, self.num_instance_fields):
             n, field_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
@@ -814,6 +823,40 @@ class DexClass:
             # print("Instance filed:",dex_object.get_field_full_name(field_idx))
             n, modifiers = get_uleb128(dex_object.m_file_content[offset:offset + 5])
             offset += n
+
+        print("Parsing the class direct method...");
+        method_idx = 0
+        for i in range(0, self.num_direct_methods):
+            n, method_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            n, access_flags = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            n, code_off = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            method_idx += method_idx_diff
+            print(dex_object.get_method_full_name(method_idx, True))
+            # print "%s           codeoff=%x"%(dex_object.getmethodname(method_idx),code_off)
+            if code_off != 0:
+                # parse the method and instruction...
+                method_obj = MethodCode(dex_object, code_off,self.class_idx,self.index)
+                method_obj.set_method_attr(True,i);
+                method_obj.printf(dex_object,'\t\t');
+
+        print("Parsing the class virtual method...");
+        # method_idx = 0
+        # for i in range(0, self.num_virtual_methods):
+        #     n, method_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+        #     offset += n
+        #     n, access_flags = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+        #     offset += n
+        #     n, code_off = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+        #     offset += n
+        #     method_idx += method_idx_diff
+        #     print(dex_object.get_method_full_name(method_idx, True))
+        #     # print "%s           codeoff=%x"%(dex_object.getmethodname(method_idx),code_off)
+        #     if code_off != 0:
+        #         MethodCode(dex_object, code_off).printf(dex_object, "\t\t")
+
 
     def printf(self, dex_object):
         print("%-20s:%08x:%10d  %s" % (
@@ -852,6 +895,7 @@ class DexClass:
         offset += n
         n, tmp = get_uleb128(dex_object.m_file_content[offset:offset + 5])
         offset += n
+
 
 
         field_idx = 0
@@ -979,9 +1023,14 @@ class DexClass:
             pass
 
 class MethodCode:
+
+    # ----------------------------------- Prase dalvik-bytecode api -----------------------------------------
+    # legal
     def parse_FMT10X(buffer, dex_object, pc_point, offset):
+        # buffer[0] --> X|X|op  Eight bits below the dalvik-bytecode is the opcode
         return (dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1])
 
+    # legal
     def parse_FMT10T(buffer, dex_object, pc_point, offset):
         val, = struct.unpack_from("b", buffer, 1)
         return (dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1], "%04x" % (int(val + offset)))
@@ -991,14 +1040,22 @@ class MethodCode:
             dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1], "v%d" % (ord(chr(buffer[1])) & 0xf),
             "%d" % ((ord(chr(buffer[1])) >> 4) & 0xf))
 
+    #legal
     def parse_FMT11X(buffer, dex_object, pc_point, offset):
         return (dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1], "v%d" % ord(chr(buffer[1])))
 
     def parse_FMT12X(buffer, dex_object, pc_point, offset):
+        # if len(buffer)==1:
+        #    return dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1];
+        # else:
+        #     return (
+        #         dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1],
+        #         "v%d" % (ord(chr(buffer[1])) & 0x0f),
+        #         "v%d" % ((ord(chr(buffer[1])) >> 4) & 0xf));
         return (
             dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1],
             "v%d" % (ord(chr(buffer[1])) & 0x0f),
-            "v%d" % ((ord(chr(buffer[1])) >> 4) & 0xf))
+            "v%d" % ((ord(chr(buffer[1])) >> 4) & 0xf));
 
     def parse_FMT20T(buffer, dex_object, pc_point, offset):
         v, = struct.unpack_from("h", buffer, 2)
@@ -1006,8 +1063,10 @@ class MethodCode:
 
     def parse_FMT21C(buffer, dex_object, pc_point, offset):
         val = ord(chr(buffer[0]))
-
-        v, = struct.unpack_from("H", buffer, 2)
+        if len(buffer)>3:
+            v, = struct.unpack_from("H", buffer, 2)
+        else:
+            v, = struct.unpack_from('B',buffer)
         arg1 = "@%d" % v
         if val == 0x1a:
             arg1 = "\"%s\"" % dex_object.get_string_by_id(v)
@@ -1074,12 +1133,18 @@ class MethodCode:
             "v%d" % ((ord(chr(buffer[1])) >> 4) & 0xf), "%04x" % (int(cccc + offset)))
 
     def parse_FMT22X(buffer, dex_object, pc_point, offset):
+        '''
+            '2': The first number indicates how many 16-bit words the instruction has.
+            '2': The second number is the maximum member of registers an instruction can use.
+            'x': The third letter is the type code,which represents the type of additional data used by the instruction.
+        '''
         try:
             if len(buffer) < 4:
-                # v, = struct.unpack_from('h',buffer)
-                return ""
+                v, = struct.unpack_from('B',buffer,2)
+                # return ""
             else:
                 v, = struct.unpack_from("h", buffer, 2)
+            # v, = struct.unpack_from("h", buffer, 2)
         except Exception as e:
             print(e)
         arg1 = "v%d" % v
@@ -1095,7 +1160,7 @@ class MethodCode:
 
     def parse_FMT30T(buffer, dex_object, pc_point, offset):
         aaaaaaaa, = struct.unpack_from("i", buffer, 2)
-        return dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1], "+%x" % (aaaaaaaa + offset)
+        return dex_decode[ord(chr(buffer[0]))][4], dex_decode[ord(chr(buffer[0]))][1], "+%x" % (int(aaaaaaaa + offset))
 
     def parse_FMT31C(buffer, dex_object, pc_point, offset):
         bbbbbbbb, = struct.unpack_from("I", buffer, 2)
@@ -1119,11 +1184,14 @@ class MethodCode:
     def parse_FMT35C(buffer, dex_object, pc_point, offset):
         A = ord(chr(buffer[1])) >> 4
         G = ord(chr(buffer[1])) & 0xf
-        D = ord(chr(buffer[4])) >> 4
-        C = ord(chr(buffer[4])) & 0xf
-        F = ord(chr(buffer[5])) >> 4
-        E = ord(chr(buffer[5])) & 0xf
-        bbbb, = struct.unpack_from("H", buffer, 2)
+        if len(buffer)>3:
+            D = ord(chr(buffer[4])) >> 4
+            C = ord(chr(buffer[4])) & 0xf
+            F = ord(chr(buffer[5])) >> 4
+            E = ord(chr(buffer[5])) & 0xf
+            bbbb, = struct.unpack_from("H", buffer, 2)
+        else:
+            bbbb, = struct.unpack_from('B',buffer,2)
         if ord(chr(buffer[0])) == 0x24:
             prefix = "type@%s" % (dex_object.get_string_by_id(bbbb))
         else:
@@ -1172,8 +1240,11 @@ class MethodCode:
                   parse_FMT22B, parse_FMT22C, parse_FMT22S, parse_FMT22T, parse_FMT22X,
                   parse_FMT23X, parse_FMT30T, parse_FMT31C, parse_FMT31I, parse_FMT31T,
                   parse_FMT32X, parse_FMT35C, parse_FMT3RC, parse_FMT51L]
+    # ----------------------------------- Prase dalvik-bytecode api end -------------------------------------
 
-    def __init__(self, dex_object, offset):
+    def __init__(self, dex_object, offset,class_idx,class_def_item_idx):
+        self.class_idx = class_idx;
+        self.class_def_item_idx = class_def_item_idx;
         format = "H"
         self.registers_size, = struct.unpack_from(format, dex_object.m_file_content, offset)
         offset += struct.calcsize(format)
@@ -1198,6 +1269,10 @@ class MethodCode:
         else:
             self.tries = offset
             self.handlers = offset + self.tries_size * struct.calcsize("I2H")
+
+    def set_method_attr(self,is_direct,idx):
+        self.method_idx = idx;
+        self.is_direct_method = is_direct;
 
     def get_param_list(self, dex_object):
         if self.debug_info_off != 0:
@@ -1224,23 +1299,28 @@ class MethodCode:
         while start < n:
             if n == 1736:
                 print("start = %d" % start)
+            #Judge opcode ..
             op = ord(chr(buf[int(start)]))
             if op == 0:
                 type = ord(chr(buf[start + 1]))
                 if type == 1:
                     size, = struct.unpack_from("H", buf, 2 + start)
                     start += (size * 2 + 4) * 2
+                    print("1",start)
                     continue
                 elif type == 2:
                     size, = struct.unpack_from("H", buf, 2 + start)
                     start += (size * 4 + 2) * 2
+                    print("2",start)
                     continue
                 elif type == 3:
                     width, = struct.unpack_from("H", buf, 2 + start)
                     size, = struct.unpack_from("I", buf, 4 + start)
                     # width,size,=struct.unpack_from("HI",buffer,2+start)
                     start += (8 + ((size * width + 1) / 2) * 2)
+                    print("mode 3",start)
                     continue
+            print(start)
             if isinstance(start, float):
                 start = int(start)
             val = MethodCode.func_point[dex_decode[op][3]](buf[start:], dex_object, offset + start, start / 2)
@@ -1268,6 +1348,9 @@ class MethodCode:
                 m += 1
             print("")
             start += 2 * val[0]
+            print(2*val[0]);
+            print("after add 2:",start);
+
 
     def parse_debug_info(self, dex_object, offset):
         print("===parse_debug_info====offset = %08x" % offset)
@@ -1363,10 +1446,10 @@ class MethodCode:
         print("%s%-20s:%08x:%10d" % (prefix, "tries", self.tries, self.tries))
         print("%s%-20s:%08x:%10d" % (prefix, "handlers", self.handlers, self.handlers))
 
-        self.parse_instruction(dex_object.m_file_content[self.insns:self.insns + self.insns_size * 2], self.insns,
-                               dex_object)
-        if self.debug_info_off != 0:
-            self.parse_debug_info(dex_object, self.debug_info_off)
+        # self.parse_instruction(dex_object.m_file_content[self.insns:self.insns + self.insns_size * 2], self.insns,
+        #                        dex_object)
+        # if self.debug_info_off != 0:
+        #     self.parse_debug_info(dex_object, self.debug_info_off)
 
 
 class DexFile:
@@ -1490,7 +1573,8 @@ class DexFile:
         # parse the class,it too hard..fuck.
         for i in range(0, self.m_dex_header['m_classDefSize']):
             print('------------------------------ parse class -----------------------------')
-            DexClass(self, i).printf(self);
+            # DexClass(self, i).printf(self);
+            DexClass(self, i);
             print("------------------------------ parse  end  -----------------------------")
         print("\n\nFile header parsing complete!!^_^");
 
@@ -1684,6 +1768,8 @@ class DexFile:
 
 
 if __name__ == '__main__':
+    # sys.argv[1]
+    # dex_file =  input("Welcome to use the dex parse.Now please input your dex file path:");
     dex_file = "../classes.dex"
     parse_dex_obj = DexFile(dex_file)
 
@@ -1735,6 +1821,12 @@ if __name__ == '__main__':
                 idx += 1;
                 print("%d:%s" % (idx, tmp))
         elif command == 'check' or command == 'ch':
+            print("Building...please wait ^_^")
+            # Only check the dex file header is legal?
+        elif command == 'rebuild' or command == 'rb':
+            print('This feature is for rebuild the class method extraction dex file.\n');
+            invailed_dex_file = input('Please input the invailed dex file path:');
+            class_method_item_code_file = input('Please enter the class method opcode file that has been dumped:');
             print("Building...please wait ^_^")
         elif command == 'q':
             receive_input = False;
