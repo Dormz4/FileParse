@@ -3,6 +3,15 @@ import binhex
 import struct
 import traceback
 import types
+import sys
+import os
+import io
+# from dex_repair import repair_dexfile_by_bin_file
+
+debug_mode = True
+need_repair_dexfile = 'H:\works\脱壳\com.mobileke.ep\\6401800_dexfile_execute.dex'
+# need_repair_dexfile = 'H:\works\classes.dex'
+repair_dexfile_bin = "H:\\works\\脱壳\\com.mobileke.ep\\6401800_ins_3228.bin"
 
 enum_access_flag = {
     'ACC_PUBLIC'       : 0x00000001,       # class, field, method, ic
@@ -408,6 +417,36 @@ dex_decode = {
     255: (0xff, 'unused', 'fmt10x', FMT10X, 1),
 }
 
+class MethodIdItem:
+    class_idx=""
+    proto_idx=""
+    name_idx=""
+
+    def __init__(self,class_idx,proto_idx,name_idx):
+        self.class_idx = class_idx
+        self.proto_idx = proto_idx
+        self.name_idx = name_idx
+
+class ClassDefItem:
+    class_idx=""
+    access_flags=""
+    superclass_idx=""
+    interfaces_off=""
+    source_file_idx=""
+    annotations_off=""
+    class_data_off=""
+    static_values_off=""
+
+    def __init__(self,class_idx, access_flags, superclass_idx, interfaces_off, source_file_idx, annotations_off, class_data_off, static_values_off):
+        self.class_idx=class_idx
+        self.access_flags=access_flags
+        self.superclass_idx=superclass_idx
+        self.interfaces_off=interfaces_off
+        self.source_file_idx=source_file_idx
+        self.annotations_off=annotations_off
+        self.class_data_off=class_data_off
+        self.static_values_off=static_values_off
+
 
 def parse_encoded_annotation(dex_object, content, is_root=False):
     offset = 0
@@ -720,7 +759,7 @@ class DexClass:
 
     '''
 
-    def __init__(self, dex_object, classid):
+    def __init__(self, dex_object, classid,need_detail=True):
         # Now start to parse the 'class_def' item
         if classid >= dex_object.m_dex_header['m_classDefSize']:
             return ""
@@ -776,7 +815,10 @@ class DexClass:
 
 
         # Parse this class for fields,methods
-        self.parse_dex_class(dex_object)
+        if need_detail:
+            self.parse_dex_class(dex_object)
+        else:
+            self.parse_dex_class2(dex_object)
         a = 1
 
     def parse_dex_class(self, dex_object):
@@ -834,7 +876,7 @@ class DexClass:
             n, code_off = get_uleb128(dex_object.m_file_content[offset:offset + 5])
             offset += n
             method_idx += method_idx_diff
-            print(dex_object.get_method_full_name(method_idx, True))
+            # print(dex_object.get_method_full_name(method_idx, True))
             # print "%s           codeoff=%x"%(dex_object.getmethodname(method_idx),code_off)
             if code_off != 0:
                 # parse the method and instruction...
@@ -843,19 +885,94 @@ class DexClass:
                 method_obj.printf(dex_object,'\t\t');
 
         print("Parsing the class virtual method...");
-        # method_idx = 0
-        # for i in range(0, self.num_virtual_methods):
-        #     n, method_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
-        #     offset += n
-        #     n, access_flags = get_uleb128(dex_object.m_file_content[offset:offset + 5])
-        #     offset += n
-        #     n, code_off = get_uleb128(dex_object.m_file_content[offset:offset + 5])
-        #     offset += n
-        #     method_idx += method_idx_diff
-        #     print(dex_object.get_method_full_name(method_idx, True))
-        #     # print "%s           codeoff=%x"%(dex_object.getmethodname(method_idx),code_off)
-        #     if code_off != 0:
-        #         MethodCode(dex_object, code_off).printf(dex_object, "\t\t")
+        method_idx = 0
+        for i in range(0, self.num_virtual_methods):
+            n, method_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            n, access_flags = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            n, code_off = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            method_idx += method_idx_diff
+            print(dex_object.get_method_full_name(method_idx, True))
+            # print "%s           codeoff=%x"%(dex_object.getmethodname(method_idx),code_off)
+            if code_off != 0:
+                MethodCode(dex_object, code_off).printf(dex_object, "\t\t")
+
+    def parse_dex_class2(self, dex_object):
+        offset = self.interfaces_off + struct.calcsize("I")
+        for n in range(0, self.interfaces_size):
+            typeid, = struct.unpack_from("H", dex_object.m_file_content, offset)
+            offset += struct.calcsize("H")
+            self.class_interfaces_list.append(dex_object.get_type_name(typeid).decode())
+        offset = self.class_data_off;
+        n, tmp = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+        offset += n
+        n, tmp = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+        offset += n
+        n, tmp = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+        offset += n
+        n, tmp = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+        offset += n
+        field_idx = 0
+
+        for i in range(0, self.num_static_fields):
+            n, field_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            field_idx += field_idx_diff
+            self.class_static_fields_list.append(dex_object.get_field_full_name(field_idx))
+            # print("Static field:",dex_object.get_field_full_name(field_idx), end=' ')
+            n, modifiers = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            if self.static_value_off:
+                staticoffset = get_static_offset(dex_object.m_file_content[self.static_value_off:], i)
+                if staticoffset == -1:
+                    # print("0;")
+                    continue
+                # parse_encoded_value(dex_object, dex_object.m_file_content[self.static_value_off + staticoffset:])
+            # print("")
+
+        field_idx = 0
+        for i in range(0, self.num_instance_fields):
+            n, field_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            field_idx += field_idx_diff
+            self.class_instance_fields_list.append(dex_object.get_field_full_name(field_idx))
+            # print("Instance filed:",dex_object.get_field_full_name(field_idx))
+            n, modifiers = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+
+        method_idx = 0
+        for i in range(0, self.num_direct_methods):
+            n, method_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            n, access_flags = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            n, code_off = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            method_idx += method_idx_diff
+            # print(dex_object.get_method_full_name(method_idx, True))
+            # print "%s           codeoff=%x"%(dex_object.getmethodname(method_idx),code_off)
+            if code_off != 0:
+                # parse the method and instruction...
+                method_obj = MethodCode(dex_object, code_off,self.class_idx,self.index)
+                method_obj.set_method_attr(True,i);
+                # method_obj.printf(dex_object,'\t\t');
+
+        method_idx = 0
+        for i in range(0, self.num_virtual_methods):
+            n, method_idx_diff = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            n, access_flags = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            n, code_off = get_uleb128(dex_object.m_file_content[offset:offset + 5])
+            offset += n
+            method_idx += method_idx_diff
+            # print(dex_object.get_method_full_name(method_idx, True))
+            # print "%s           codeoff=%x"%(dex_object.getmethodname(method_idx),code_off)
+            if code_off != 0:
+                # MethodCode(dex_object, code_off).printf(dex_object, "\t\t")
+                MethodCode(dex_object, code_off)
 
 
     def printf(self, dex_object):
@@ -1023,7 +1140,6 @@ class DexClass:
             pass
 
 class MethodCode:
-
     # ----------------------------------- Prase dalvik-bytecode api -----------------------------------------
     # legal
     def parse_FMT10X(buffer, dex_object, pc_point, offset):
@@ -1242,7 +1358,7 @@ class MethodCode:
                   parse_FMT32X, parse_FMT35C, parse_FMT3RC, parse_FMT51L]
     # ----------------------------------- Prase dalvik-bytecode api end -------------------------------------
 
-    def __init__(self, dex_object, offset,class_idx,class_def_item_idx):
+    def __init__(self, dex_object, offset,class_idx=None,class_def_item_idx=None):
         self.class_idx = class_idx;
         self.class_def_item_idx = class_def_item_idx;
         format = "H"
@@ -1446,15 +1562,270 @@ class MethodCode:
         print("%s%-20s:%08x:%10d" % (prefix, "tries", self.tries, self.tries))
         print("%s%-20s:%08x:%10d" % (prefix, "handlers", self.handlers, self.handlers))
 
-        # self.parse_instruction(dex_object.m_file_content[self.insns:self.insns + self.insns_size * 2], self.insns,
-        #                        dex_object)
+        self.parse_instruction(dex_object.m_file_content[self.insns:self.insns + self.insns_size * 2], self.insns,dex_object)
         # if self.debug_info_off != 0:
         #     self.parse_debug_info(dex_object, self.debug_info_off)
 
 
+import base64
+import re
+
+methodTable = {}
+
+class CodeItem:
+    methodname=""
+    inssize=0
+    insarray=""
+    method_idx=0
+    def __init__(self,number,methodname, inssize,insarray):
+        self.method_idx=number
+        self.methodname = methodname
+        self.inssize = inssize
+        self.insarray=insarray
+
+
+
+def repair_dexfile_by_bin_file(dexfile_obj,binfile):
+    #先弄个数组
+    a =1
+    bfd = open(binfile)
+    # print(bfd.read())
+    # bin_str_arr = bfd.read().split(";")
+    bin_str_arr = bfd.read()
+    bfd.close()
+
+    insarray=re.findall(r"{name:(.*?),method_idx:(.*?),offset:(.*?),code_item_len:(.*?),ins:(.*?)}",bin_str_arr) #(.*?)最短匹配
+
+    i =1
+    for each_ins in insarray:
+        '''
+            第一步
+            1.获取函数名字
+            2.获取函数的method_idx
+            3.获取函数的偏移
+            4.获取code_item_len的长度
+            5.获取ins的内容
+        '''
+        methodname=each_ins[0].replace(" ","")
+        method_idx=(int)(each_ins[1])
+        offset=(int)(each_ins[2])
+        inssize=int(each_ins[3])
+        ins=each_ins[4]
+        ins = base64.b64decode(ins)
+        tempmethod=CodeItem(method_idx,methodname,inssize,ins)
+        methodTable[method_idx]=tempmethod #添加method
+        ori_ins,ins_size = dexfile_obj.get_ins_and_ins_size_by_method_idx(method_idx,int(offset))
+        print("第%d个ori_ins:%s\n size为:%d"%(i,ori_ins,ins_size))
+        print("第%d个dump下来的ins:%s\n dump size为:%d"%(i,ins,inssize))
+        i+=1
+
+    '''
+        第二步
+        #1.将被方法抽取的dex 文件加载到内存
+        #2.重新计算文件内部各个段之间的值
+        #3.进行重新排放，并修改文件头
+        
+            # 3.1 dex文件内存布局的重新排布
+                --》 1.将原来的dex文件加载到内存中
+                --》 2.获取每一个class_def_item,得到后将dump出来的code_item字节回填回去。
+                --》 
+                --》 修正string的 string_id_item offset偏移
+                --》 type_id_item 里面只是记录着 type字符串在srting table中的索引，所以不用改
+                --》 
+                --》 最后修正文件头
+                    --》1. 修正checksum
+                    --》2. 修正signature
+                    --》3. 修正datasize
+                
+        进行 dex回填的话，先填完ins后，要修改string offset的偏移
+    '''
+
+    repair_dex_filepath = need_repair_dexfile.split(".dex")[0]+"_repair.dex"
+    # mkdir(repair_dex_filepath)
+    repair_dex_file = open(repair_dex_filepath,'wb')
+
+    # 测试 写入文件头
+    # repair_dex_file.write(dexfile_obj.m_dex_header['m_magic_struct'])
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_magic_struct']['m_magic'])
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_magic_struct']['m_version'])
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_checksum'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_signature'])
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_fileSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_headerSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_endianTag'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_linkSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_linkOff'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_mapOffset'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_stringIdsSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_stringIdsOff'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_typeIdsSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_typeIdsOffset'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_protoIdsSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_protoIdsOffset'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_fieldIdsSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_fieldIdsOffset'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_methodIdsSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_methodIdsOffset'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_classDefSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_classDefOffset'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_dataSize'].to_bytes(4,byteorder="little",signed=False))
+    repair_dex_file.write(dexfile_obj.m_dex_header['m_dataOff'].to_bytes(4,byteorder="little",signed=False))
+
+    """
+        - 对索引区进行修复
+            1.string_id_list 
+            2.type_id_list 无需修复
+            3.proto_id_list 需要修复parameters_off的偏移
+            4.field_id_list 无需修复
+            5.method_id_list 无需修复
+            6.class_def_item_list 需修复
+            7.map_list_type 
+    """
+
+    repair_dex_buf = io.BytesIO()
+    #进行将原dex中的索引区存放到buf中
+    #先将 索引区的数据拼接起来
+    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_stringIdsOff']:
+                                                    dexfile_obj.m_dex_header['m_stringIdsOff']+dexfile_obj.m_dex_header['m_stringIdsSize']*4])
+    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_typeIdsOffset']:
+                                                    dexfile_obj.m_dex_header['m_typeIdsOffset']+dexfile_obj.m_dex_header['m_typeIdsSize']*4])
+    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_protoIdsOffset']:
+                                                    dexfile_obj.m_dex_header['m_protoIdsOffset']+dexfile_obj.m_dex_header['m_protoIdsSize']*0xc])
+    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_fieldIdsOffset']:
+                                                    dexfile_obj.m_dex_header['m_fieldIdsOffset']+dexfile_obj.m_dex_header['m_fieldIdsSize']*0x8])
+    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_methodIdsOffset']:
+                                                    dexfile_obj.m_dex_header['m_methodIdsOffset']+dexfile_obj.m_dex_header['m_methodIdsSize']*0x8])
+    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_classDefOffset']:
+                                                    dexfile_obj.m_dex_header['m_classDefOffset']+dexfile_obj.m_dex_header['m_classDefSize']*0x20])
+
+    """
+        data数据区要进行膨胀了
+            1.进行对string 数据的获取，可以发现,string数据不会被影响。所以这里的数据直接拼接到内存中就行了
+    """
+    gogog = 0
+    local_file_point = dexfile_obj.m_dex_header['m_stringIdsOff']
+    last_start = 0
+    if dexfile_obj.m_dex_header['m_stringIdsSize'] > 0:
+        for i in range(dexfile_obj.m_dex_header['m_stringIdsSize']):
+            offset, = struct.unpack_from("I", dexfile_obj.m_file_content, local_file_point + i * 4)
+            if i == 0:
+                start = offset
+                gogog+=1
+            else:
+                skip, length = get_uleb128(dexfile_obj.m_file_content[start:start + 5])
+                # print("第%d个字符串长度:%d"%(i,length))
+                # self.m_string_list.append(self.m_file_content[start + skip:offset - 1])
+                # repair_dex_buf.write(dexfile_obj.m_file_content[start + skip:offset - 1])
+                # repair_dex_buf.write(dexfile_obj.m_file_content[start + skip:offset])
+                repair_dex_buf.write(dexfile_obj.m_file_content[start :offset])
+                # gogog+=1
+                # if(gogog == 100):
+                #     break
+                # repair_dex_file.write(repair_dex_buf.getvalue())
+            if(i == dexfile_obj.m_dex_header['m_stringIdsSize']-1):
+                last_start = offset
+            start = offset
+            # string_id_item = dexfile_obj.m_file_content[local_file_point:local_file_point+4]
+            # # tmp_id,string_size = get_uleb128(dexfile_obj.m_file_content[int(int("0x"+string_id_item.hex(),16).to_bytes(4,byteorder="little",signed=False).hex(),16):
+            # #                                                             int(int("0x"+string_id_item.hex(),16).to_bytes(4,byteorder="little",signed=False).hex(),16)+1])
+            # local_file_point+=4
+            # string_id_item_next = dexfile_obj.m_file_content[local_file_point:local_file_point+4]
+            # repair_dex_buf.write(dexfile_obj.m_file_content[int(int("0x"+string_id_item.hex(),16).to_bytes(4,byteorder="little",signed=False).hex(),16)
+            #                                                 :int(int("0x"+string_id_item_next.hex(),16).to_bytes(4,byteorder="little",signed=False).hex(),16)])
+
+    """
+        data区::string_item_list 的下一段就是 type_item_list的数据,
+        string_item_list 4字节对齐
+        直接dump原文件的type_item_list段拼接上去就得了。
+    """
+    # 这里需要获取parameters_off数组的最大值和最小值
+    params_off_list = list()
+    local_file_point = dexfile_obj.m_dex_header['m_protoIdsOffset']
+    for i in range(dexfile_obj.m_dex_header['m_protoIdsSize']):
+        # pro
+        short_idx,return_type_idx,parameters_off = struct.unpack_from("3I", dexfile_obj.m_file_content, local_file_point + i * 12)
+        # parameters_off = proto_id_item[8:12]
+        if(parameters_off!=0):
+            params_off_list.append(parameters_off)
+            # if(parameters_off == 0x23b71a or parameters_off == parameters_off==0x23b71c):
+            #     break
+    min_parameters_off = min(params_off_list)
+    max_parameters_off = max(params_off_list)
+    # 进行记录最后的字符串
+    repair_dex_buf.write(dexfile_obj.m_file_content[last_start:min_parameters_off])
+
+
+    repair_dex_buf.write(dexfile_obj.m_file_content[min_parameters_off:max_parameters_off])
+
+
+    """
+        data区::type_item_list 的下一段貌似就是class_def_item的数据了，下面进行验证
+    """
+    interfaces_off_list = list()
+    annotations_off_list = list()
+    class_data_off_list = list()
+    static_value_off_list = list()
+    local_file_point = dexfile_obj.m_dex_header['m_classDefOffset']
+    for i in range(dexfile_obj.m_dex_header['m_classDefSize']):
+        class_idx,access_flags,superclass_idx,interfaces_off,source_file_idx, \
+        annotations_off,class_data_off,static_value_off = struct.unpack_from("8I", dexfile_obj.m_file_content, local_file_point + i * 0x20)
+        if(interfaces_off!=0):
+            interfaces_off_list.append(interfaces_off)
+        if(annotations_off!=0):
+            annotations_off_list.append(annotations_off)
+        if(class_data_off!=0):
+            class_data_off_list.append(class_data_off)
+        if(static_value_off!=0):
+            static_value_off_list.append(static_value_off)
+
+    aaa =111
+    repair_dex_buf2 = io.BytesIO()
+    repair_dex_buf2.write(dexfile_obj.m_file_content[0x70:min(class_data_off_list)])
+    # min(class_data_off)
+    # 遍历每一个 class_data_item,并获取里面的方法数
+    class_def_item_list = list()
+    for i in range(0, dexfile_obj.m_dex_header['m_classDefSize']):
+        local_class_def_item =  DexClass(dexfile_obj, i,False);
+        class_def_item_list.append(local_class_def_item)
+
+    aa = 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # 将拼接出来的字节流写入到修复的dex中
+    # repair_dex_file.write(repair_dex_buf.getvalue())
+    repair_dex_file.write(repair_dex_buf2.getvalue())
+
+    tmp_class_data_item_list = list()
+
+
+    # 下面进行回填指令操作
+    for key in methodTable.keys():
+        # dexfile_obj.repair_method() m_class_def_item_list
+        # 这里注意 class_def_item 的序号 跟class_idx是不对等的哦
+        local_method_item = methodTable.get(key)
+        class_idx = dexfile_obj.m_method_id_item_list[local_method_item.method_idx].class_idx
+        for class_def_item in dexfile_obj.m_class_def_item_list:
+            if class_def_item.class_idx == class_idx:
+                # 这里开始填充指令回去
+                aaa = 1
+    repair_dex_buf.close()
+    repair_dex_file.close()
+
+
 class DexFile:
-    DEX_MAGIC = "dex\n";
-    DEX_OPT_MAGIC = "dey\n";
+    DEX_MAGIC = "dex\n";      #dex文件
+    DEX_OPT_MAGIC = "dey\n";  #opt文件
 
     def __init__(self, dex_file):
         # Dex file does not distinguish between 32 bits and 64 bits
@@ -1516,12 +1887,14 @@ class DexFile:
         self.m_field_name_list = []
         self.m_type_name_list = []
         self.m_proto_name_list = []
+        self.m_class_def_item_list = list()
+        self.m_method_id_item_list = list()
 
         self.parse_dex_header()
 
     def parse_dex_header(self):
         print("The dex file header has starts to parse...")
-        self.m_fd = open(dex_file, 'rb');
+        self.m_fd = open(self.file_name, 'rb');
         self.m_file_content = self.m_fd.read();
         self.m_fd.close();
         # Determines whether the file is an 'opt' or 'dex' format
@@ -1540,6 +1913,11 @@ class DexFile:
                 else:
                     skip, length = get_uleb128(self.m_file_content[start:start + 5])
                     self.m_string_list.append(self.m_file_content[start + skip:offset - 1])
+                    # try:
+                    #     print("第%d个字符串:%s"%(i,self.m_file_content[start + skip:offset - 1].decode()))
+                    # except Exception as e:
+                    #     # print("第%d个字符串:%s"%(i,self.m_file_content[start + skip:offset - 1].decode('gbk')))
+                    #     print(e)
                     start = offset
             for i in range(start, len(self.m_file_content)):
                 if self.m_file_content[i] == chr(0):
@@ -1549,6 +1927,7 @@ class DexFile:
         print("Parsing all method name...");
         for i in range(0, self.m_dex_header['m_methodIdsSize']):
             self.m_method_name_list.append(self.get_method_name(i));
+            self.m_method_id_item_list.append(self.get_method_id_item(i))
             # print (self.get_method_name(i))
         print("Parsing all filed name...");
         for i in range(0, self.m_dex_header['m_fieldIdsSize']):
@@ -1569,13 +1948,15 @@ class DexFile:
         for i in range(0, self.m_dex_header['m_classDefSize']):
             str1 = self.get_class_name(i)
             self.m_class_dict[str1] = i
+            self.m_class_def_item_list.append(self.get_class_def_item(i))
         print("Parsing all class details...");
         # parse the class,it too hard..fuck.
         for i in range(0, self.m_dex_header['m_classDefSize']):
-            print('------------------------------ parse class -----------------------------')
+            # print('------------------------------ parse class -----------------------------')
             # DexClass(self, i).printf(self);
-            DexClass(self, i);
-            print("------------------------------ parse  end  -----------------------------")
+            # DexClass(self, i);
+            # print("------------------------------ parse  end  -----------------------------")
+            pass
         print("\n\nFile header parsing complete!!^_^");
 
     def get_type_name_by_id(self,typeid):
@@ -1606,13 +1987,31 @@ class DexFile:
         class_idx, proto_idx, name_idx, = struct.unpack_from("HHI", self.m_file_content, offset)
         return self.m_string_list[name_idx]
 
-    def get_class_name(self, classid):
-        if classid >= self.m_dex_header['m_classDefSize']:
+    def get_method_id_item(self,methodid):
+        if methodid >= self.m_dex_header['m_methodIdsSize']:
             return ""
-        offset = self.m_dex_header['m_classDefSize'] + classid * struct.calcsize("8I")
+        offset = self.m_dex_header['m_methodIdsOffset'] + methodid * struct.calcsize("HHI")
+        class_idx, proto_idx, name_idx, = struct.unpack_from("HHI", self.m_file_content, offset)
+
+        return MethodIdItem(class_idx,proto_idx,name_idx)
+
+
+    def get_class_name(self, class_def_item_id):
+        if class_def_item_id >= self.m_dex_header['m_classDefSize']:
+            return ""
+        offset = self.m_dex_header['m_classDefOffset'] + class_def_item_id * struct.calcsize("8I");
         class_idx, access_flags, superclass_idx, interfaces_off, source_file_idx, annotations_off, class_data_off, static_values_off, = struct.unpack_from(
             "8I", self.m_file_content, offset)
         return self.get_type_name(class_idx)
+
+    def get_class_def_item(self,class_def_item_id):
+        if class_def_item_id >= self.m_dex_header['m_classDefSize']:
+            return ""
+        offset = self.m_dex_header['m_classDefOffset'] + class_def_item_id * struct.calcsize("8I");
+        class_idx, access_flags, superclass_idx, interfaces_off, source_file_idx, annotations_off, class_data_off, static_values_off, = struct.unpack_from(
+            "8I", self.m_file_content, offset)
+        return ClassDefItem(class_idx, access_flags, superclass_idx, interfaces_off, source_file_idx, annotations_off, class_data_off, static_values_off)
+
 
     def get_type_name(self, typeid):
         if typeid >= self.m_dex_header['m_typeIdsSize']:
@@ -1766,17 +2165,64 @@ class DexFile:
         retstr += ")"
         return retstr
 
+    '''
+        用于返回方法的code
+    '''
+    def get_ins_by_method_idx(self,method_idx,offset=None):
+        if offset == None:
+            print("Now it can't work for not offset,please input offset")
+            return
+        method_obj = MethodCode(self,offset)
+        ori_ins = self.m_file_content[method_obj.insns:method_obj.insns+method_obj.insns_size*2]
+        return  ori_ins
+
+    def get_ins_and_ins_size_by_method_idx(self,method_idx,offset=None):
+        if offset == None:
+            print("Now it can't work for not offset,please input offset")
+            return
+        method_obj = MethodCode(self,offset)
+        ori_ins = self.m_file_content[method_obj.insns:method_obj.insns+method_obj.insns_size*2]
+
+        return  ori_ins,method_obj.insns_size
+
+
+
 
 if __name__ == '__main__':
-    # sys.argv[1]
+    # global debug_mode,need_repair_dexfile,repair_dexfile_bin
+    dex_file = ""
+    command = None
+    if sys.argv.__len__() >1:
+        command = sys.argv[1]
+
     # dex_file =  input("Welcome to use the dex parse.Now please input your dex file path:");
-    dex_file = "../classes.dex"
-    parse_dex_obj = DexFile(dex_file)
+    # dex_file = "../classes.dex"
+    # dex_file = "../7995032_dexfile.dex"
+    # parse_dex_obj = DexFile(dex_file)
+    print("please input the dex filepath:")
+
+    # if not debug_mode:
+    if  debug_mode:
+        parse_dex_obj = DexFile(need_repair_dexfile)
+    else:
+        while True:
+            dex_file = input()
+            if not dex_file.endswith(".dex"):
+                print("please input the correct dex filepath")
+                continue
+            parse_dex_obj = DexFile(dex_file)
+            if parse_dex_obj !=None:
+                break
+            else:
+                print("parse_dex_obj ")
+
+
 
     # Receives input code..
     receive_input = True
     while receive_input:
-        command = (input('Please input the command(\'q\' to exit):')).lower()
+        if command == None:
+            command = (input('Please input the command(\'q\' to exit):')).lower()
         if command == 'x':
             pass
         elif command == 's' or command == 'string':
@@ -1813,6 +2259,7 @@ if __name__ == '__main__':
                 idx += 1;
                 print("%d:%s" % (idx, tmp))
         elif command == 'c' or command == 'class':
+            print("Start to show class list:\n")
             idx = 0
             for i in parse_dex_obj.m_class_dict.keys():
                 tmp = i;
@@ -1820,9 +2267,26 @@ if __name__ == '__main__':
                     tmp = binascii.b2a_qp(tmp);
                 idx += 1;
                 print("%d:%s" % (idx, tmp))
+            print("\nShow class list is finished!")
+
         elif command == 'check' or command == 'ch':
             print("Building...please wait ^_^")
             # Only check the dex file header is legal?
+        elif command == 'r' or command == 'repair':
+            print("This is for fart repair the dex file.\n"
+                  "Now please input the *.bin filepath for the dex file which you want to repaire.\n")
+            # print("Building...please wait ^_^")
+            if debug_mode:
+                bin_file = repair_dexfile_bin
+            else:
+                bin_file = input()
+            if not bin_file.endswith(".bin"):
+                print("You input the bin file is not vailed")
+            else:
+                # 这里开始进行修复
+                repair_dexfile_by_bin_file(parse_dex_obj,bin_file)
+                aaa = 1
+
         elif command == 'rebuild' or command == 'rb':
             print('This feature is for rebuild the class method extraction dex file.\n');
             invailed_dex_file = input('Please input the invailed dex file path:');
@@ -1833,6 +2297,7 @@ if __name__ == '__main__':
         elif command == 'h' or command == 'help':
             print("Command list:\n"
                   "'c' or 'class' to show class table\n"
+                  "'r' or 'repair' to repair the dex file by input bin file path\n"
                   "'s' or 'string' to show string table\n"
                   "'f' or 'field' to show field table\n"
                   "'m' or 'method' to show method table\n"
@@ -1843,5 +2308,6 @@ if __name__ == '__main__':
             print("Invailed command! You can input 'h' or 'help' to show menu.");
         if not receive_input:
             break;
+        command = None
     print("Bye Bye~")
     quit(0)
