@@ -7,6 +7,8 @@ import sys
 import os
 import io
 # from dex_repair import repair_dexfile_by_bin_file
+import time
+import progressbar
 
 debug_mode = True
 need_repair_dexfile = '6401800_dexfile_execute.dex'
@@ -38,7 +40,7 @@ enum_access_flag = {
     'ACC_INNER_CLASS_MASK' : ((0x00000001 | 0x00000010 | 0x00000200 | 0x00000400  | 0x00001000 | 0x00002000 | 0x00004000) | 0x00000002 | 0x00000004 | 0x00000008),
     'ACC_FIELD_MASK' : (0x00000001 | 0x00000002 | 0x00000004 | 0x00000008 | 0x00000010  | 0x00000040 | 0x00000080 | 0x00001000 | 0x00004000),
     'ACC_METHOD_MASK' : (0x00000001 | 0x00000002 | 0x00000004 | 0x00000008 | 0x00000010 | 0x00000020 | 0x00000040 | 0x00000080 | 0x00000100
-         | 0x00000400 | 0x00000800 | 0x00001000 | 0x00010000 | 0x00020000),
+                         | 0x00000400 | 0x00000800 | 0x00001000 | 0x00010000 | 0x00020000),
 }
 
 enum_annotation_constants = {
@@ -615,6 +617,7 @@ def get_uleb128(content):
     for i in range(0, 5):
         # print(content[i])
         tmp = ord(chr(content[i])) & 0x7f
+        # print (tmp)
         value = tmp << (i * 7) | value
         if (ord(chr(content[i])) & 0x80) != 0x80:
             break
@@ -926,13 +929,13 @@ class DexClass:
             # print("Static field:",dex_object.get_field_full_name(field_idx), end=' ')
             n, modifiers = get_uleb128(dex_object.m_file_content[offset:offset + 5])
             offset += n
-            if self.static_value_off:
-                staticoffset = get_static_offset(dex_object.m_file_content[self.static_value_off:], i)
-                if staticoffset == -1:
-                    # print("0;")
-                    continue
-                # parse_encoded_value(dex_object, dex_object.m_file_content[self.static_value_off + staticoffset:])
-            # print("")
+            # if self.static_value_off:
+            #     staticoffset = get_static_offset(dex_object.m_file_content[self.static_value_off:], i)
+            #     if staticoffset == -1:
+            #         # print("0;")
+            #         continue
+            #     # parse_encoded_value(dex_object, dex_object.m_file_content[self.static_value_off + staticoffset:])
+            # # print("")
 
         field_idx = 0
         for i in range(0, self.num_instance_fields):
@@ -955,10 +958,10 @@ class DexClass:
             method_idx += method_idx_diff
             # print(dex_object.get_method_full_name(method_idx, True))
             # print "%s           codeoff=%x"%(dex_object.getmethodname(method_idx),code_off)
-            if code_off != 0:
-                # parse the method and instruction...
-                method_obj = MethodCode(dex_object, code_off,self.class_idx,self.index)
-                method_obj.set_method_attr(True,i);
+            # if code_off != 0:
+            #     # parse the method and instruction...
+            #     method_obj = MethodCode(dex_object, code_off,self.class_idx,self.index)
+            #     method_obj.set_method_attr(True,i);
                 # method_obj.printf(dex_object,'\t\t');
 
         method_idx = 0
@@ -974,8 +977,8 @@ class DexClass:
             # print ("%s           codeoff=%x"%(dex_object.get_method_full_name(method_idx),code_off))
             if code_off != 0:
                 # MethodCode(dex_object, code_off).printf(dex_object, "\t\t")
-                MethodCode(dex_object, code_off)
-
+                # MethodCode(dex_object, code_off)
+                pass
 
     def printf(self, dex_object):
         print("%-20s:%08x:%10d  %s" % (
@@ -1585,15 +1588,15 @@ class CodeItem:
         self.inssize = inssize
         self.insarray=insarray
 
-
+def write_to_bytes_io(buf,bytes,should_repair):
+    if should_repair:
+        buf.write(bytes)
 
 
 def repair_dexfile_by_bin_file(dexfile_obj,binfile):
     #先弄个数组
     a =1
     bfd = open(binfile)
-    # print(bfd.read())
-    # bin_str_arr = bfd.read().split(";")
     bin_str_arr = bfd.read()
     bfd.close()
 
@@ -1618,8 +1621,6 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
         tempmethod=CodeItem(method_idx,methodname,inssize,ins)
         methodTable[method_idx]=tempmethod #添加method
         ori_ins,ins_size = dexfile_obj.get_ins_and_ins_size_by_method_idx(method_idx,int(offset))
-        # print("第%d个ori_ins:%s\n size为:%d"%(i,ori_ins,ins_size))
-        # print("第%d个dump下来的ins:%s\n dump size为:%d"%(i,ins,inssize))
         i+=1
 
     '''
@@ -1648,36 +1649,11 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
     repair_dex_file = open(repair_dex_filepath,'wb')
 
     # 测试 写入文件头
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_magic_struct']['m_magic'])
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_magic_struct']['m_version'])
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_checksum'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_signature'])
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_fileSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_headerSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_endianTag'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_linkSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_linkOff'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_mapOffset'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_stringIdsSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_stringIdsOff'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_typeIdsSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_typeIdsOffset'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_protoIdsSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_protoIdsOffset'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_fieldIdsSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_fieldIdsOffset'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_methodIdsSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_methodIdsOffset'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_classDefSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_classDefOffset'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_dataSize'].to_bytes(4,byteorder="little",signed=False))
-    # repair_dex_file.write(dexfile_obj.m_dex_header['m_dataOff'].to_bytes(4,byteorder="little",signed=False))
-
     """
         - 对索引区进行修复
             1.string_id_list 
             2.type_id_list 无需修复
-            3.proto_id_list 需要修复parameters_off的偏移
+            3.proto_id_list 无需修复
             4.field_id_list 无需修复
             5.method_id_list 无需修复
             6.class_def_item_list 需修复
@@ -1687,53 +1663,7 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
     repair_dex_buf = io.BytesIO()
     #进行将原dex中的索引区存放到buf中
     #先将 索引区的数据拼接起来
-    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_stringIdsOff']:
-                                                    dexfile_obj.m_dex_header['m_stringIdsOff']+dexfile_obj.m_dex_header['m_stringIdsSize']*4])
-    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_typeIdsOffset']:
-                                                    dexfile_obj.m_dex_header['m_typeIdsOffset']+dexfile_obj.m_dex_header['m_typeIdsSize']*4])
-    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_protoIdsOffset']:
-                                                    dexfile_obj.m_dex_header['m_protoIdsOffset']+dexfile_obj.m_dex_header['m_protoIdsSize']*0xc])
-    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_fieldIdsOffset']:
-                                                    dexfile_obj.m_dex_header['m_fieldIdsOffset']+dexfile_obj.m_dex_header['m_fieldIdsSize']*0x8])
-    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_methodIdsOffset']:
-                                                    dexfile_obj.m_dex_header['m_methodIdsOffset']+dexfile_obj.m_dex_header['m_methodIdsSize']*0x8])
-    repair_dex_buf.write(dexfile_obj.m_file_content[dexfile_obj.m_dex_header['m_classDefOffset']:
-                                                    dexfile_obj.m_dex_header['m_classDefOffset']+dexfile_obj.m_dex_header['m_classDefSize']*0x20])
 
-    """
-        data数据区要进行膨胀了
-            1.进行对string 数据的获取，可以发现,string数据不会被影响。所以这里的数据直接拼接到内存中就行了
-    """
-    gogog = 0
-    local_file_point = dexfile_obj.m_dex_header['m_stringIdsOff']
-    last_start = 0
-    if dexfile_obj.m_dex_header['m_stringIdsSize'] > 0:
-        for i in range(dexfile_obj.m_dex_header['m_stringIdsSize']):
-            offset, = struct.unpack_from("I", dexfile_obj.m_file_content, local_file_point + i * 4)
-            if i == 0:
-                start = offset
-                gogog+=1
-            else:
-                skip, length = get_uleb128(dexfile_obj.m_file_content[start:start + 5])
-                # print("第%d个字符串长度:%d"%(i,length))
-                # self.m_string_list.append(self.m_file_content[start + skip:offset - 1])
-                # repair_dex_buf.write(dexfile_obj.m_file_content[start + skip:offset - 1])
-                # repair_dex_buf.write(dexfile_obj.m_file_content[start + skip:offset])
-                repair_dex_buf.write(dexfile_obj.m_file_content[start :offset])
-                # gogog+=1
-                # if(gogog == 100):
-                #     break
-                # repair_dex_file.write(repair_dex_buf.getvalue())
-            if(i == dexfile_obj.m_dex_header['m_stringIdsSize']-1):
-                last_start = offset
-            start = offset
-            # string_id_item = dexfile_obj.m_file_content[local_file_point:local_file_point+4]
-            # # tmp_id,string_size = get_uleb128(dexfile_obj.m_file_content[int(int("0x"+string_id_item.hex(),16).to_bytes(4,byteorder="little",signed=False).hex(),16):
-            # #                                                             int(int("0x"+string_id_item.hex(),16).to_bytes(4,byteorder="little",signed=False).hex(),16)+1])
-            # local_file_point+=4
-            # string_id_item_next = dexfile_obj.m_file_content[local_file_point:local_file_point+4]
-            # repair_dex_buf.write(dexfile_obj.m_file_content[int(int("0x"+string_id_item.hex(),16).to_bytes(4,byteorder="little",signed=False).hex(),16)
-            #                                                 :int(int("0x"+string_id_item_next.hex(),16).to_bytes(4,byteorder="little",signed=False).hex(),16)])
 
     """
         data区::string_item_list 的下一段就是 type_item_list的数据,
@@ -1754,10 +1684,10 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
     min_parameters_off = min(params_off_list)
     max_parameters_off = max(params_off_list)
     # 进行记录最后的字符串
-    repair_dex_buf.write(dexfile_obj.m_file_content[last_start:min_parameters_off])
+    # repair_dex_buf.write(dexfile_obj.m_file_content[last_start:min_parameters_off])
 
 
-    repair_dex_buf.write(dexfile_obj.m_file_content[min_parameters_off:max_parameters_off])
+    # repair_dex_buf.write(dexfile_obj.m_file_content[min_parameters_off:max_parameters_off])
 
 
     """
@@ -1780,41 +1710,58 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
         if(static_value_off!=0):
             static_value_off_list.append(static_value_off)
 
-    aaa =111
     repair_dex_buf2 = io.BytesIO()
     repair_dex_buf2.write(dexfile_obj.m_file_content[0x70:min(class_data_off_list)])
     # min(class_data_off)
     # 遍历每一个 class_data_item,并获取里面的方法数
     class_def_item_list = list()
+
+    #记录修复的直接方法、虚方法，格式为 method_id:修改offset
     repair_direct_method_offset_dict = dict()
     repair_virtual_method_offset_dict = dict()
-
-    import time
-    import progressbar
-    p = progressbar.ProgressBar()
+    #修复失败的方法 list
     failed_repair_method_id_list = list()
+    # 这里申请一个byteio进行存放修正后的指令
+    repair_dex_code_item_buf = io.BytesIO()
+
+
+    #用来修复用的
+    dict_methodId_to_oriCodeOff = dict()
+    dict_oriCodeOffAddress_to_oriCodeOff = dict()
+    dict_oriCodeOffAddress_to_uleb128_size = dict()
+    dict_methodId_to_newCodeOff = dict()
+
+    p = progressbar.ProgressBar()
     p_total = dexfile_obj.m_dex_header['m_classDefSize']
     p.start(p_total)
     data_code_start = 0
     need_record_code_item_section_start = True
     third_file_part_start=0
+    run_time_calc =0
+    repair_dex_file_part1_buf = io.BytesIO()
+    is_record_first_section = False
     for i in range(0, dexfile_obj.m_dex_header['m_classDefSize']):
-    # for i in range(0, 2000):
+        run_time_calc = i
+        # for i in range(0, 2000):
         # p.update(int((i / (p_total - 1)) * 100))
         p.update(i+1)
-        # local_class_def_item =  DexClass(dexfile_obj, i,False);
-        local_class_def_item = DexClass(dexfile_obj, i, True, 2)
+        local_class_def_item =  DexClass(dexfile_obj, i,False);
+        # local_class_def_item = DexClass(dexfile_obj, i, True, 2)
         class_name = dexfile_obj.get_class_name(i)
 
-        # class_name = class_name.decode().replace('/','.')
-        # if class_name.find("android.support")!=-1 or class_name.find("android.arch") !=-1 or class_name.find("android.content")!=-1\
-        #         or class_name.find("androidx")!=-1:
-        #     # print(class_name)
-        #     continue
-        # else:
-        #     print("2,",class_name)
+        need_rpair_class = False
+        class_name = class_name.decode().replace('/','.')
+        if class_name.find("android.support")!=-1 or class_name.find("android.arch") !=-1 or class_name.find("android.content")!=-1\
+                or class_name.find("androidx")!=-1:
+            # print(class_name)
+            # continue
+            pass
+        else:
+            # print("2,",class_name)
+            need_rpair_class = True
+        if(need_rpair_class):
+            local_class_def_item = DexClass(dexfile_obj,i,True,2)
 
-        # local_class_def_item = DexClass(dexfile_obj,i,True,2)
         class_def_item_list.append(local_class_def_item)
 
         # 这里开始进行修复,修复顺序为先直接方法 后虚拟方法
@@ -1844,11 +1791,11 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
             # print("Static field:",dex_object.get_field_full_name(field_idx), end=' ')
             n, modifiers = get_uleb128(dexfile_obj.m_file_content[offset:offset + 5])
             offset += n
-            if local_class_def_item.static_value_off:
-                staticoffset = get_static_offset(dexfile_obj.m_file_content[local_class_def_item.static_value_off:], i)
-                if staticoffset == -1:
+            # if local_class_def_item.static_value_off:
+            #     staticoffset = get_static_offset(dexfile_obj.m_file_content[local_class_def_item.static_value_off:], i)
+            #     if staticoffset == -1:
                     # print("0;")
-                    continue
+                    # continue
                 # parse_encoded_value(dex_object, dex_object.m_file_content[self.static_value_off + staticoffset:])
             # print("")
 
@@ -1863,8 +1810,7 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
             offset += n
 
 
-        # 这里申请一个byteio进行存放修正后的指令
-        repair_dex_code_item_buf = io.BytesIO()
+
 
         # print("Parsing the class direct method...");
         method_idx = 0
@@ -1879,6 +1825,12 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
             n, access_flags = get_uleb128(dexfile_obj.m_file_content[offset:offset + 5])
             offset += n
             n, code_off = get_uleb128(dexfile_obj.m_file_content[offset:offset + 5])
+            # 原code_off_address <-> code_off_size
+            dict_oriCodeOffAddress_to_uleb128_size[offset] = n # 记录1
+            # 原code_off_address <-> code_off
+            dict_oriCodeOffAddress_to_oriCodeOff[offset] = code_off   # 记录2
+
+
             offset += n
             method_idx += method_idx_diff
             # print(dex_object.get_method_full_name(method_idx, True))
@@ -1887,6 +1839,10 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
                 if need_record_code_item_section_start:
                     need_record_code_item_section_start = False
                     data_code_start = code_off
+                if not is_record_first_section and data_code_start !=0:
+                    is_record_first_section = True
+                    repair_dex_file_part1_buf.write(dexfile_obj.m_file_content[0:data_code_start])
+                    repair_dex_file.write(repair_dex_file_part1_buf.getvalue())
 
                 # parse the method and instruction...
                 method_obj = MethodCode(dexfile_obj, code_off,False,False )
@@ -1894,6 +1850,14 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
                 # method_obj.printf(dex_object, '\t\t');
                 # 这里进行
                 this_method_offset = code_off
+
+                #记录method_idx_diff 对应的的原ori_code_off
+                dict_methodId_to_oriCodeOff[method_idx_diff] = code_off #记录#3
+
+                # 这里的写入位置就是 new_code_off_address
+                # 回填新的指令到内存的时候，记录这里面的偏移  记录4
+                dict_methodId_to_newCodeOff[method_idx_diff] = len(repair_dex_file_part1_buf.getvalue()) + len(repair_dex_code_item_buf.getvalue())
+
                 format = "H"
                 registers_size, = struct.unpack_from(format, dexfile_obj.m_file_content, this_method_offset)
                 repair_dex_code_item_buf.write(registers_size.to_bytes(2,byteorder="little",signed=False))
@@ -1917,22 +1881,41 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
 
                 this_method_offset += struct.calcsize(format)
                 ori_insns_size, = struct.unpack_from(format, dexfile_obj.m_file_content, this_method_offset)
-                try:
-                    repair_insns_size = methodTable[method_idx_diff].inssize
 
-                    inssize_difference = repair_insns_size - ori_insns_size
-                    repair_direct_method_offset_dict[method_idx_diff] = inssize_difference
+                # 这里用一个dict进行记录 method_id 与 code_off 的关系
+                if code_off == 0x2ee998 or code_off == 0x2ee7a0:
+                    aa = 11
 
-                    repair_dex_code_item_buf.write(repair_insns_size.to_bytes(4, byteorder="little", signed=False))
-                    repair_dex_code_item_buf.write(methodTable[method_idx_diff].insarray)
-
-                except KeyError as e:
-                    # print("找不到 方法id：",e,"，这里把原来的指令和指令大小填回去")
-                    if e not in failed_repair_method_id_list:
-                        failed_repair_method_id_list.append(e)
+                # need_rpair_class = False
+                if not need_rpair_class:
+                    #假如是不需要修复的类，那么将原数据回填回去
                     repair_dex_code_item_buf.write(ori_insns_size.to_bytes(4, byteorder="little", signed=False))
-                    repair_dex_code_item_buf.write(dexfile_obj.m_file_content[this_method_offset:this_method_offset + ori_insns_size])
+                    repair_dex_code_item_buf.write(dexfile_obj.m_file_content[this_method_offset+4:this_method_offset+4 + ori_insns_size*2])
+                    if ori_insns_size*2 %4!=0:
+                        repair_dex_code_item_buf.write(str.encode("00"))
+                    # repair_dex_file.write(repair_dex_code_item_buf.getvalue())
+                else:
+                    #否则进行修复,并记录修复后的ins size到字典中
+                    try:
+                        repair_insns_size = methodTable[method_idx_diff].inssize
+                        inssize_difference = repair_insns_size - ori_insns_size
+                        repair_direct_method_offset_dict[method_idx_diff] = inssize_difference
+                        repair_dex_code_item_buf.write(repair_insns_size.to_bytes(4, byteorder="little", signed=False))
 
+                        repair_dex_code_item_buf.write(methodTable[method_idx_diff].insarray)
+                        # print("repair direct method")
+                        if repair_insns_size * 2 % 4 != 0:
+                            repair_dex_code_item_buf.write(str.encode("00"))
+                    except KeyError as e:
+                        # print("找不到 方法id：",e,"，这里把原来的指令和指令大小填回去")
+                        if e not in failed_repair_method_id_list:
+                            failed_repair_method_id_list.append(e.args[0])
+                        repair_dex_code_item_buf.write(ori_insns_size.to_bytes(4, byteorder="little", signed=False))
+                        repair_dex_code_item_buf.write(dexfile_obj.m_file_content[this_method_offset:this_method_offset + ori_insns_size])
+                        if ori_insns_size * 2 % 4 != 0:
+                            repair_dex_code_item_buf.write(str.encode("00"))
+
+                # print("buf size:%d"%(len(repair_dex_code_item_buf.getvalue())))
 
                 this_method_offset += struct.calcsize(format)
                 insns = this_method_offset
@@ -1948,6 +1931,12 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
             n, access_flags = get_uleb128(dexfile_obj.m_file_content[offset:offset + 5])
             offset += n
             n, code_off = get_uleb128(dexfile_obj.m_file_content[offset:offset + 5])
+
+            # 原code_off_address <-> code_off_size
+            dict_oriCodeOffAddress_to_uleb128_size[offset] = n # 记录1
+            # 原code_off_address <-> code_off
+            dict_oriCodeOffAddress_to_oriCodeOff[offset] = code_off   # 记录2
+
             offset += n
             method_idx += method_idx_diff
             # print(dex_object.get_method_full_name(method_idx, True))
@@ -1955,6 +1944,13 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
             if code_off != 0:
                 method_obj = MethodCode(dexfile_obj, code_off)
                 this_method_offset = code_off
+
+                # 记录method_idx_diff 对应的的原ori_code_off
+                dict_methodId_to_oriCodeOff[method_idx_diff] = code_off  # 记录#3
+
+                # 这里的写入位置就是 new_code_off_address
+                # 回填新的指令到内存的时候，记录这里面的偏移  记录4
+                dict_methodId_to_newCodeOff[method_idx_diff] = len(repair_dex_file_part1_buf.getvalue()) + len(repair_dex_code_item_buf.getvalue())
 
                 format = "H"
                 registers_size, = struct.unpack_from(format, dexfile_obj.m_file_content, this_method_offset)
@@ -1980,25 +1976,46 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
                 this_method_offset += struct.calcsize(format)
                 ori_insns_size, = struct.unpack_from(format, dexfile_obj.m_file_content, this_method_offset)
 
+                if code_off == 0x2ee998:
+                    aa = 11
+
                 third_file_part_start = code_off + ori_insns_size*2+0x10+1
 
-                try:
-                    repair_insns_size = methodTable[method_idx_diff].inssize
-
-                    inssize_difference = repair_insns_size - ori_insns_size
-                    repair_virtual_method_offset_dict[method_idx_diff] = inssize_difference
-
-                    repair_dex_code_item_buf.write(repair_insns_size.to_bytes(4, byteorder="little", signed=False))
-                    repair_dex_code_item_buf.write(methodTable[method_idx_diff].insarray)
-
-                except KeyError as e:
-                    # print("找不到 方法id：",e,"，这里把原来的指令和指令大小填回去")
-                    if e not in failed_repair_method_id_list:
-                        failed_repair_method_id_list.append(e)
+                # need_rpair_class = False
+                if not need_rpair_class:
+                    #假如是不需要修复的类，那么将原数据回填回去
                     repair_dex_code_item_buf.write(ori_insns_size.to_bytes(4, byteorder="little", signed=False))
-                    repair_dex_code_item_buf.write(dexfile_obj.m_file_content[this_method_offset:this_method_offset + ori_insns_size])
+                    # tmp_bytes = dexfile_obj.m_file_content[this_method_offset+4:this_method_offset+4 + ori_insns_size*2][::-1]
+                    repair_dex_code_item_buf.write(dexfile_obj.m_file_content[this_method_offset+4:this_method_offset+4 + ori_insns_size*2])
+                    # repair_dex_code_item_buf.write(bytes(dexfile_obj.m_file_content[this_method_offset+4:this_method_offset+4 + ori_insns_size*2].hex(),'utf-8'))
+
+                    if ori_insns_size * 2 % 4 != 0:
+                        repair_dex_code_item_buf.write(str.encode("00"))
+                else:
+                    try:
+                        repair_insns_size = methodTable[method_idx_diff].inssize
+
+                        inssize_difference = repair_insns_size - ori_insns_size
+                        repair_virtual_method_offset_dict[method_idx_diff] = inssize_difference
+
+                        repair_dex_code_item_buf.write(repair_insns_size.to_bytes(4, byteorder="little", signed=False))
 
 
+                        repair_dex_code_item_buf.write(methodTable[method_idx_diff].insarray)
+                        # print("repair virtual method")
+                        if repair_insns_size * 2 % 4 != 0:
+                            repair_dex_code_item_buf.write(str.encode("00"))
+
+                    except KeyError as e:
+                        # print("找不到 方法id：",e,"，这里把原来的指令和指令大小填回去")
+                        if e not in failed_repair_method_id_list:
+                            failed_repair_method_id_list.append(e.args[0])
+                        repair_dex_code_item_buf.write(ori_insns_size.to_bytes(4, byteorder="little", signed=False))
+                        repair_dex_code_item_buf.write(dexfile_obj.m_file_content[this_method_offset:this_method_offset + ori_insns_size])
+                        if ori_insns_size * 2 % 4 != 0:
+                            repair_dex_code_item_buf.write(str.encode("00"))
+
+                # print("buf size2:%d,当前第%d次"%(len(repair_dex_code_item_buf.getvalue()),run_time_calc))
                 this_method_offset += struct.calcsize(format)
                 insns = this_method_offset
                 this_method_offset += 2 * ori_insns_size
@@ -2021,7 +2038,6 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
 
     aa = 1
 
-    repair_dex_file_part1_buf = io.BytesIO()
     repair_dex_file_part1_buf.write(dexfile_obj.m_file_content[0:data_code_start])
     # 对这里的code_def_item进行偏移修正。。  逻辑为遍历上面保存的两个list，匹配方法id
     # 绝对偏移值(相对于原始位置) = 当前位置偏移值1 + 当前位置偏移值2+。。。 + 当前位置偏移值final
@@ -2039,36 +2055,89 @@ def repair_dexfile_by_bin_file(dexfile_obj,binfile):
     # 将拼接出来的字节流写入到修复的dex中
     # repair_dex_file.write(repair_dex_buf.getvalue())
     # repair_dex_file.write(repair_dex_buf2.getvalue())
-    repair_dex_file.write(repair_dex_file_part1_buf.getvalue())
+    size1 = len(repair_dex_file_part1_buf.getvalue())
+    size2 = len(repair_dex_code_item_buf.getvalue())
+    size3 = len(repair_dex_file_part3_buf.getvalue())
+    print("修复文件的大小为:%d: %d+%d+%d"%(
+        size1+size2+size3,size1,size2,size3)
+    )
+
+    # repair_dex_file.write(repair_dex_file_part1_buf.getvalue())
     repair_dex_file.write(repair_dex_code_item_buf.getvalue())
     repair_dex_file.write(repair_dex_file_part3_buf.getvalue())
-
-
-    # 下面进行修正偏移 计算hash
-
-
-
-    tmp_class_data_item_list = list()
-
-
-    # # 下面进行回填指令操作
-    # for key in methodTable.keys():
-    #     # dexfile_obj.repair_method() m_class_def_item_list
-    #     # 这里注意 class_def_item 的序号 跟class_idx是不对等的哦
-    #     local_method_item = methodTable.get(key)
-    #     class_idx = dexfile_obj.m_method_id_item_list[local_method_item.method_idx].class_idx
-    #     for class_def_item in dexfile_obj.m_class_def_item_list:
-    #         if class_def_item.class_idx == class_idx:
-    #             # 这里开始填充指令回去
-    #             aaa = 1
-
-
 
     repair_dex_file_part1_buf.close()
     repair_dex_file_part3_buf.close()
     repair_dex_code_item_buf.close()
     repair_dex_buf.close()
     repair_dex_file.close()
+
+    # 下面进行修正偏移 计算hash
+    fix_repair_dexfile(repair_dex_filepath,dict_methodId_to_oriCodeOff,dict_oriCodeOffAddress_to_oriCodeOff,dict_oriCodeOffAddress_to_uleb128_size
+                       ,dict_methodId_to_newCodeOff,failed_repair_method_id_list)
+
+
+def fix_repair_dexfile(need_repaired_dexfile,dict_methodId_to_oriCodeOff,dict_oriCodeOffAddress_to_oriCodeOff,dict_oriCodeOffAddress_to_uleb128_size,dict_methodId_to_newCodeOff
+                       ,failed_repair_method_id_list):
+    p = progressbar.ProgressBar()
+    p.start(len(dict_methodId_to_oriCodeOff.keys()))
+
+    aa =need_repaired_dexfile
+    fd = open(need_repaired_dexfile,"rb+")
+    fd.seek(0,0)
+    repair_time = 0
+    for key in dict_methodId_to_oriCodeOff.keys():
+        if key in failed_repair_method_id_list:
+            continue
+        # local_offset_size = dict_oriCodeOffAddress_to_uleb128_size[key]
+        for key2 in dict_oriCodeOffAddress_to_oriCodeOff.keys():
+            local_offset_size = dict_oriCodeOffAddress_to_uleb128_size[key2]
+            if dict_oriCodeOffAddress_to_oriCodeOff[key2] == dict_methodId_to_oriCodeOff[key]:
+                # 找到了原始保存 oriCodeOffAddress的地方
+                new_code_off = dict_methodId_to_newCodeOff[key]
+                new_code_off_uleb128 = code_off_to_uleb128(new_code_off,local_offset_size)
+                # 将新的code_off回填回去
+                fd.seek(key2)
+                # # new_code_off_bytes = struct.pack("<I",new_code_off_uleb128)
+                # fd.write(new_code_off_bytes)
+                p.update(repair_time+1)
+                repair_time+=1
+                fd.write(new_code_off_uleb128)
+
+
+    fd.flush()
+    fd.close()
+
+def code_off_to_uleb128(num,uleb128_size):
+    # 将整数转为bytes数组
+    num_bytes = num.to_bytes(4,byteorder="little")
+    # idx = uleb128_size -1
+    idx = 0
+    byte1_leave_value =0
+    byte2_leave_value = 0
+    byte3_leave_value = 0
+    byte4_leave_value = 0
+    byte_arr = bytearray(uleb128_size)
+    for b in num_bytes:
+        local_byte = num_bytes[idx]
+        if idx ==0:
+            byte1_leave_value = (local_byte & 0x80)>>7
+            local_byte |=0x80
+        elif idx == 1:
+            byte2_leave_value = (local_byte & 0xc0)>>6
+            local_byte  = ((local_byte&0x3f)<<1) | byte1_leave_value|0x80
+        elif idx ==2:
+            local_byte = ((local_byte&0x1f)<<2)|byte2_leave_value|0x80
+        elif idx ==3:
+            aa =1
+            pass
+        else:
+            print ("code_off to uleb128 failed!")
+            return
+        # byte_arr[idx] = local_byte.to_bytes(1,byteorder="little")
+        byte_arr[uleb128_size-idx-1] = local_byte
+        idx +=1
+    return byte_arr[::-1]
 
 
 class DexFile:
